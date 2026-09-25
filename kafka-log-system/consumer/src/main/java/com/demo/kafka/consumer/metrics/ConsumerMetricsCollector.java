@@ -10,6 +10,8 @@ import org.apache.kafka.common.TopicPartition;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -85,6 +87,7 @@ public class ConsumerMetricsCollector {
     private final ScheduledExecutorService scheduler;
     private final ObjectMapper mapper = new ObjectMapper();
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+    private final ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
 
     public ConsumerMetricsCollector(
             int workerCount,
@@ -279,9 +282,13 @@ public class ConsumerMetricsCollector {
         jvm.put("heapUsedMB", heapUsage.getUsed() / (1024 * 1024));
         jvm.put("heapCommittedMB", heapUsage.getCommitted() / (1024 * 1024));
         jvm.put("heapMaxMB", heapUsage.getMax() / (1024 * 1024));
-        jvm.put("threadCount", Thread.activeCount());
+        jvm.put("threadCount", threadBean.getThreadCount());
 
-        // 8. 60秒滑动时序历史数据
+        // 8. 系统线程组与线程详情监控
+        ObjectNode threadsNode = root.putObject("threads");
+        buildThreadMetrics(threadsNode);
+
+        // 9. 60秒滑动时序历史数据
         ArrayNode historyArray = root.putArray("history");
         synchronized (historyLock) {
             int start = (historyCount == HISTORY_WINDOW_SECONDS) ? historyIndex : 0;
@@ -302,6 +309,92 @@ public class ConsumerMetricsCollector {
         }
 
         return root.toString();
+    }
+
+    private void buildThreadMetrics(ObjectNode threadsNode) {
+        threadsNode.put("totalLive", threadBean.getThreadCount());
+        threadsNode.put("peakCount", threadBean.getPeakThreadCount());
+        threadsNode.put("daemonCount", threadBean.getDaemonThreadCount());
+        threadsNode.put("totalStarted", threadBean.getTotalStartedThreadCount());
+
+        long[] deadlocked = threadBean.findDeadlockedThreads();
+        int deadlockedCount = (deadlocked != null) ? deadlocked.length : 0;
+        threadsNode.put("deadlockedCount", deadlockedCount);
+
+        ThreadInfo[] threadInfos = threadBean.dumpAllThreads(false, false);
+
+        int runnable = 0;
+        int timedWaiting = 0;
+        int waiting = 0;
+        int blocked = 0;
+
+        Map<String, List<ThreadInfo>> groupMap = new LinkedHashMap<>();
+        groupMap.put("pipeline", new ArrayList<>());
+        groupMap.put("kafka", new ArrayList<>());
+        groupMap.put("dashboard", new ArrayList<>());
+        groupMap.put("system", new ArrayList<>());
+
+        for (ThreadInfo ti : threadInfos) {
+            if (ti == null) continue;
+            Thread.State state = ti.getThreadState();
+            switch (state) {
+                case RUNNABLE -> runnable++;
+                case TIMED_WAITING -> timedWaiting++;
+                case WAITING -> waiting++;
+                case BLOCKED -> blocked++;
+                default -> {}
+            }
+
+            String name = ti.getThreadName();
+            if (name.startsWith("kfk-worker") || name.startsWith("kfk-fetcher")) {
+                groupMap.get("pipeline").add(ti);
+            } else if (name.startsWith("kafka") || name.startsWith("consumer-") || name.contains("kafka")) {
+                groupMap.get("kafka").add(ti);
+            } else if (name.startsWith("kfk-dashboard") || name.startsWith("kfk-metrics")) {
+                groupMap.get("dashboard").add(ti);
+            } else {
+                groupMap.get("system").add(ti);
+            }
+        }
+
+        ObjectNode statesNode = threadsNode.putObject("states");
+        statesNode.put("RUNNABLE", runnable);
+        statesNode.put("TIMED_WAITING", timedWaiting);
+        statesNode.put("WAITING", waiting);
+        statesNode.put("BLOCKED", blocked);
+
+        ArrayNode groupsArray = threadsNode.putArray("groups");
+        addThreadGroupNode(groupsArray, "pipeline", "Pipeline 核心消费组", "专职拉取 Fetcher 与条带化 Worker 处理落盘线程", groupMap.get("pipeline"));
+        addThreadGroupNode(groupsArray, "kafka", "Kafka 客户端组", "Kafka 网络 I/O、心跳及协调者内部线程", groupMap.get("kafka"));
+        addThreadGroupNode(groupsArray, "dashboard", "监控推流组", "HTTP 服务响应及指标采样器守护线程", groupMap.get("dashboard"));
+        addThreadGroupNode(groupsArray, "system", "JVM 系统底层组", "GC、主线程、信号分发及系统运行时线程", groupMap.get("system"));
+    }
+
+    private void addThreadGroupNode(ArrayNode parent, String key, String name, String desc, List<ThreadInfo> threads) {
+        ObjectNode gNode = parent.addObject();
+        gNode.put("key", key);
+        gNode.put("name", name);
+        gNode.put("description", desc);
+        gNode.put("count", threads.size());
+
+        int rCount = 0;
+        int bCount = 0;
+        ArrayNode tArray = gNode.putArray("threads");
+        for (ThreadInfo ti : threads) {
+            if (ti.getThreadState() == Thread.State.RUNNABLE) rCount++;
+            if (ti.getThreadState() == Thread.State.BLOCKED) bCount++;
+
+            ObjectNode tNode = tArray.addObject();
+            tNode.put("id", ti.getThreadId());
+            tNode.put("name", ti.getThreadName());
+            tNode.put("state", ti.getThreadState().name());
+            tNode.put("daemon", ti.isDaemon());
+            tNode.put("priority", ti.getPriority());
+            tNode.put("lockName", ti.getLockName() != null ? ti.getLockName() : "");
+            tNode.put("lockOwner", ti.getLockOwnerName() != null ? ti.getLockOwnerName() : "");
+        }
+        gNode.put("runnableCount", rCount);
+        gNode.put("blockedCount", bCount);
     }
 
     public void stop() {

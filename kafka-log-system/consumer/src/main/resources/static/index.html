@@ -427,6 +427,274 @@
             color: #475569;
             padding: 12px 0;
         }
+
+        /* 线程组监控专有样式 */
+        .thread-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .thread-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .thread-summary-tags {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .deadlock-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: var(--font-mono);
+        }
+
+        .deadlock-badge.ok {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--emerald-accent);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .deadlock-badge.danger {
+            background: rgba(244, 63, 94, 0.25);
+            color: var(--rose-accent);
+            border: 1px solid rgba(244, 63, 94, 0.5);
+            animation: pulse-rose 1s infinite;
+        }
+
+        .thread-state-bar-container {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(56, 75, 112, 0.3);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .thread-state-legend {
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+            color: var(--text-muted);
+            flex-wrap: wrap;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .dot-runnable { background: var(--emerald-accent); box-shadow: 0 0 8px rgba(52, 211, 153, 0.4); }
+        .dot-timed { background: var(--amber-accent); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+        .dot-waiting { background: #38bdf8; box-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
+        .dot-blocked { background: var(--rose-accent); box-shadow: 0 0 8px rgba(251, 113, 133, 0.6); }
+
+        .thread-state-bar {
+            height: 10px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 5px;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .state-seg-runnable { background: var(--emerald-accent); transition: width 0.3s ease; }
+        .state-seg-timed { background: var(--amber-accent); transition: width 0.3s ease; }
+        .state-seg-waiting { background: #38bdf8; transition: width 0.3s ease; }
+        .state-seg-blocked { background: var(--rose-accent); transition: width 0.3s ease; animation: pulse-rose 1.5s infinite; }
+
+        .thread-groups-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+        }
+
+        .thread-group-card {
+            background: rgba(22, 30, 49, 0.6);
+            border: 1px solid rgba(56, 75, 112, 0.3);
+            border-radius: 8px;
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+
+        .thread-group-card:hover {
+            border-color: rgba(6, 182, 212, 0.4);
+            background: rgba(26, 36, 60, 0.8);
+        }
+
+        .thread-group-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .thread-group-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .thread-group-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .thread-chips-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            max-height: 120px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .thread-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-size: 11px;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+
+        .thread-chip:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+        }
+
+        .thread-table-toggle-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 4px;
+        }
+
+        .thread-detail-toggle {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-card);
+            color: var(--cyan-accent);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .thread-detail-toggle:hover {
+            background: rgba(6, 182, 212, 0.15);
+            border-color: var(--cyan-accent);
+        }
+
+        .thread-filters {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn.active, .filter-btn:hover {
+            background: rgba(6, 182, 212, 0.2);
+            color: var(--cyan-accent);
+            border-color: var(--cyan-accent);
+        }
+
+        .thread-table-wrapper {
+            border: 1px solid var(--border-card);
+            border-radius: 8px;
+            overflow-x: auto;
+            background: rgba(15, 23, 42, 0.5);
+            max-height: 350px;
+            overflow-y: auto;
+        }
+
+        .thread-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            text-align: left;
+        }
+
+        .thread-table th {
+            background: rgba(30, 41, 59, 0.8);
+            color: var(--text-muted);
+            padding: 10px 12px;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            border-bottom: 1px solid var(--border-card);
+        }
+
+        .thread-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+
+        .thread-table tr:hover td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .badge-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .badge-state.RUNNABLE { background: rgba(16, 185, 129, 0.15); color: var(--emerald-accent); border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-state.TIMED_WAITING { background: rgba(245, 158, 11, 0.15); color: var(--amber-accent); border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-state.WAITING { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+        .badge-state.BLOCKED { background: rgba(244, 63, 94, 0.25); color: var(--rose-accent); border: 1px solid rgba(244, 63, 94, 0.5); animation: pulse-rose 1s infinite; }
     </style>
 </head>
 <body>
@@ -554,6 +822,80 @@
             </div>
             <div id="workerGrid" class="worker-grid">
                 <!-- 动态填充 Worker 卡片 -->
+            </div>
+        </div>
+
+        <!-- 🧵 系统线程组与线程运行监控 -->
+        <div class="panel-card thread-panel">
+            <div class="thread-header">
+                <div class="section-title">
+                    <span>🧵 系统线程组与线程运行监控 (JVM Threads &amp; Groups)</span>
+                </div>
+                <div class="thread-summary-tags">
+                    <div id="threadDeadlockBadge" class="deadlock-badge ok">
+                        <span class="status-dot"></span>
+                        <span id="deadlockText">死锁: 0</span>
+                    </div>
+                    <div class="meta-tag">活跃: <b id="threadsLive" class="highlight-cyan">0</b></div>
+                    <div class="meta-tag">峰值: <b id="threadsPeak">0</b></div>
+                    <div class="meta-tag">守护: <b id="threadsDaemon">0</b></div>
+                    <div class="meta-tag">累计创建: <b id="threadsStarted">0</b></div>
+                </div>
+            </div>
+
+            <!-- 状态比例条 -->
+            <div class="thread-state-bar-container">
+                <div class="thread-state-legend">
+                    <div class="legend-item"><span class="legend-dot dot-runnable"></span>RUNNABLE: <b id="cntRunnable">0</b></div>
+                    <div class="legend-item"><span class="legend-dot dot-timed"></span>TIMED_WAITING: <b id="cntTimed">0</b></div>
+                    <div class="legend-item"><span class="legend-dot dot-waiting"></span>WAITING: <b id="cntWaiting">0</b></div>
+                    <div class="legend-item"><span class="legend-dot dot-blocked"></span>BLOCKED: <b id="cntBlocked" class="highlight-rose">0</b></div>
+                </div>
+                <div class="thread-state-bar" id="threadStateBar">
+                    <div id="segRunnable" class="state-seg-runnable" style="width: 0%;"></div>
+                    <div id="segTimed" class="state-seg-timed" style="width: 0%;"></div>
+                    <div id="segWaiting" class="state-seg-waiting" style="width: 0%;"></div>
+                    <div id="segBlocked" class="state-seg-blocked" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- 四大功能线程组卡片 -->
+            <div id="threadGroupsGrid" class="thread-groups-grid">
+                <!-- 动态填充 4 大线程组 -->
+            </div>
+
+            <!-- 展开/折叠明细表格 -->
+            <div class="thread-table-toggle-bar">
+                <button type="button" id="toggleThreadDetailsBtn" class="thread-detail-toggle" onclick="toggleThreadTable()">
+                    <span id="toggleThreadIcon">▼</span> 展开详细线程监控追踪表 (<span id="tableThreadCount">0</span> 线程)
+                </button>
+                <div class="thread-filters" id="threadFilters" style="display: none;">
+                    <button type="button" class="filter-btn active" data-filter="ALL" onclick="setThreadFilter('ALL')">全部</button>
+                    <button type="button" class="filter-btn" data-filter="RUNNABLE" onclick="setThreadFilter('RUNNABLE')">RUNNABLE</button>
+                    <button type="button" class="filter-btn" data-filter="TIMED_WAITING" onclick="setThreadFilter('TIMED_WAITING')">TIMED_WAITING</button>
+                    <button type="button" class="filter-btn" data-filter="WAITING" onclick="setThreadFilter('WAITING')">WAITING</button>
+                    <button type="button" class="filter-btn" data-filter="BLOCKED" onclick="setThreadFilter('BLOCKED')">BLOCKED</button>
+                    <button type="button" class="filter-btn" data-filter="pipeline" onclick="setThreadFilter('pipeline')">Pipeline 核心组</button>
+                </div>
+            </div>
+
+            <div id="threadDetailsSection" class="thread-table-wrapper" style="display: none;">
+                <table class="thread-table">
+                    <thead>
+                        <tr>
+                            <th>TID</th>
+                            <th>线程名称</th>
+                            <th>所属功能组</th>
+                            <th>运行状态</th>
+                            <th>类型</th>
+                            <th>优先级</th>
+                            <th>等待锁 / 资源</th>
+                        </tr>
+                    </thead>
+                    <tbody id="threadTableBody">
+                        <!-- 动态填充行 -->
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -851,6 +1193,182 @@
                 document.getElementById('heapMax').innerText = `${heapMax} MB`;
                 document.getElementById('threadsCount').innerText = data.jvm.threadCount;
             }
+
+            // 7. 系统线程组与线程详情监控
+            if (data.threads) {
+                renderThreads(data.threads);
+            }
+        }
+
+        // ================= 线程组与线程状态渲染 =================
+        let currentThreadFilter = 'ALL';
+        let latestThreadsData = null;
+        let isThreadTableExpanded = false;
+
+        function toggleThreadTable() {
+            isThreadTableExpanded = !isThreadTableExpanded;
+            const sec = document.getElementById('threadDetailsSection');
+            const filters = document.getElementById('threadFilters');
+            const icon = document.getElementById('toggleThreadIcon');
+            if (isThreadTableExpanded) {
+                sec.style.display = 'block';
+                filters.style.display = 'flex';
+                icon.innerText = '▲';
+                renderThreadTable();
+            } else {
+                sec.style.display = 'none';
+                filters.style.display = 'none';
+                icon.innerText = '▼';
+            }
+        }
+
+        function setThreadFilter(filter) {
+            currentThreadFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-filter') === filter);
+            });
+            renderThreadTable();
+        }
+
+        function renderThreads(threads) {
+            latestThreadsData = threads;
+            document.getElementById('threadsLive').innerText = threads.totalLive || 0;
+            document.getElementById('threadsPeak').innerText = threads.peakCount || 0;
+            document.getElementById('threadsDaemon').innerText = threads.daemonCount || 0;
+            document.getElementById('threadsStarted').innerText = threads.totalStarted || 0;
+            document.getElementById('tableThreadCount').innerText = threads.totalLive || 0;
+
+            // 死锁状态
+            const deadlockBadge = document.getElementById('threadDeadlockBadge');
+            const deadlockText = document.getElementById('deadlockText');
+            if (threads.deadlockedCount > 0) {
+                deadlockBadge.className = 'deadlock-badge danger';
+                deadlockText.innerText = `🚨 发现死锁: ${threads.deadlockedCount} 个!`;
+            } else {
+                deadlockBadge.className = 'deadlock-badge ok';
+                deadlockText.innerText = '死锁: 0 (正常)';
+            }
+
+            // 状态分布与进度条
+            const st = threads.states || {};
+            const r = st.RUNNABLE || 0;
+            const tw = st.TIMED_WAITING || 0;
+            const w = st.WAITING || 0;
+            const blk = st.BLOCKED || 0;
+            const total = Math.max(1, r + tw + w + blk);
+
+            document.getElementById('cntRunnable').innerText = r;
+            document.getElementById('cntTimed').innerText = tw;
+            document.getElementById('cntWaiting').innerText = w;
+            document.getElementById('cntBlocked').innerText = blk;
+
+            document.getElementById('segRunnable').style.width = ((r / total) * 100) + '%';
+            document.getElementById('segTimed').style.width = ((tw / total) * 100) + '%';
+            document.getElementById('segWaiting').style.width = ((w / total) * 100) + '%';
+            document.getElementById('segBlocked').style.width = ((blk / total) * 100) + '%';
+
+            // 线程组卡片
+            const groupsGrid = document.getElementById('threadGroupsGrid');
+            if (threads.groups && threads.groups.length > 0) {
+                groupsGrid.innerHTML = '';
+                threads.groups.forEach(g => {
+                    const card = document.createElement('div');
+                    card.className = 'thread-group-card';
+
+                    let chipsHtml = '';
+                    if (g.threads && g.threads.length > 0) {
+                        g.threads.forEach(t => {
+                            let dotClass = 'dot-timed';
+                            if (t.state === 'RUNNABLE') dotClass = 'dot-runnable';
+                            else if (t.state === 'BLOCKED') dotClass = 'dot-blocked';
+                            else if (t.state === 'WAITING') dotClass = 'dot-waiting';
+
+                            const lockTitle = t.lockName ? `等待锁: ${t.lockName}` : (t.state === 'RUNNABLE' ? '正在执行 (RUNNABLE)' : t.state);
+                            chipsHtml += `
+                                <div class="thread-chip" title="${t.name} (TID: ${t.id})&#10;状态: ${t.state}&#10;${lockTitle}">
+                                    <span class="legend-dot ${dotClass}" style="margin: 0; width: 6px; height: 6px;"></span>
+                                    <span>${t.name}</span>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        chipsHtml = '<span style="font-size: 11px; color: #64748b;">(暂无活动线程)</span>';
+                    }
+
+                    card.innerHTML = `
+                        <div class="thread-group-head">
+                            <span class="thread-group-title">
+                                <span>${g.name}</span>
+                            </span>
+                            <span class="meta-tag" style="padding: 2px 8px; font-weight: 600;">
+                                ${g.count} 线程
+                            </span>
+                        </div>
+                        <div class="thread-group-desc">${g.description}</div>
+                        <div class="thread-chips-container">
+                            ${chipsHtml}
+                        </div>
+                    `;
+                    groupsGrid.appendChild(card);
+                });
+            }
+
+            // 若展开则实时刷新明细表
+            if (isThreadTableExpanded) {
+                renderThreadTable();
+            }
+        }
+
+        function renderThreadTable() {
+            if (!latestThreadsData || !latestThreadsData.groups) return;
+            const tbody = document.getElementById('threadTableBody');
+            tbody.innerHTML = '';
+
+            let allThreads = [];
+            latestThreadsData.groups.forEach(g => {
+                if (g.threads) {
+                    g.threads.forEach(t => {
+                        allThreads.push({ ...t, groupKey: g.key, groupName: g.name });
+                    });
+                }
+            });
+
+            let filtered = allThreads;
+            if (currentThreadFilter !== 'ALL') {
+                if (currentThreadFilter === 'pipeline') {
+                    filtered = allThreads.filter(t => t.groupKey === 'pipeline');
+                } else {
+                    filtered = allThreads.filter(t => t.state === currentThreadFilter);
+                }
+            }
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 20px;">无匹配的线程</td></tr>';
+                return;
+            }
+
+            filtered.forEach(t => {
+                const tr = document.createElement('tr');
+                let badgeClass = 'badge-state ' + t.state;
+                let lockDesc = '-';
+                if (t.lockName) {
+                    lockDesc = `<span style="color: var(--amber-accent);">${t.lockName}</span>`;
+                    if (t.lockOwner) {
+                        lockDesc += ` (持有者: <b style="color: var(--rose-accent);">${t.lockOwner}</b>)`;
+                    }
+                }
+
+                tr.innerHTML = `
+                    <td style="color: #64748b;">#${t.id}</td>
+                    <td style="color: var(--text-main); font-weight: 600;">${t.name}</td>
+                    <td><span class="meta-tag" style="padding: 2px 6px; font-size: 10px;">${t.groupName}</span></td>
+                    <td><span class="${badgeClass}"><span class="legend-dot dot-${t.state === 'RUNNABLE' ? 'runnable' : (t.state === 'BLOCKED' ? 'blocked' : (t.state === 'WAITING' ? 'waiting' : 'timed'))}" style="margin: 0; width: 6px; height: 6px;"></span>${t.state}</span></td>
+                    <td style="color: var(--text-muted);">${t.daemon ? '守护 (Daemon)' : '用户 (User)'}</td>
+                    <td style="color: var(--text-muted);">${t.priority || 5}</td>
+                    <td>${lockDesc}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         // ================= 实时通信 (SSE 优先，轮询降级) =================
