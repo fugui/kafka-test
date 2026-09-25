@@ -709,6 +709,7 @@
                 </div>
             </div>
             <div class="header-meta">
+                <div id="noDiskTag" class="meta-tag" style="display: none; background: rgba(245, 158, 11, 0.2); color: var(--amber-accent); border: 1px solid rgba(245, 158, 11, 0.4); font-weight: 600;">⚡ NO-DISK 纯内存模式</div>
                 <div id="connStatus" class="meta-tag">🔴 连接中...</div>
                 <div id="uptimeTag" class="meta-tag">运行时长: 0s</div>
                 <div id="statusBadge" class="status-pill">
@@ -1081,6 +1082,11 @@
 
         function updateUI(data) {
             // 1. 顶部状态
+            const noDiskTag = document.getElementById('noDiskTag');
+            if (noDiskTag) {
+                noDiskTag.style.display = data.noDisk ? 'inline-block' : 'none';
+            }
+
             const isPaused = data.backpressure?.isPaused;
             const statusBadge = document.getElementById('statusBadge');
             const statusText = document.getElementById('statusText');

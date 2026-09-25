@@ -53,6 +53,7 @@ public class ConsumerMetricsCollector {
     private final List<RollingJsonWriter> writers;
     private final KafkaConsumer<?, ?> consumer;
     private final long startTimeMs = System.currentTimeMillis();
+    private volatile Set<TopicPartition> assignedPartitions = Collections.emptySet();
 
     // ========== 滑动窗口历史数据 ==========
     public record TimePoint(
@@ -88,6 +89,34 @@ public class ConsumerMetricsCollector {
     private final ObjectMapper mapper = new ObjectMapper();
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+    private final boolean noDisk;
+
+    public ConsumerMetricsCollector(
+            int workerCount,
+            int queueCapacity,
+            int highWatermark,
+            int lowWatermark,
+            List<? extends BlockingQueue<?>> workerQueues,
+            List<RollingJsonWriter> writers,
+            KafkaConsumer<?, ?> consumer,
+            boolean noDisk) {
+        this.workerCount = workerCount;
+        this.queueCapacity = queueCapacity;
+        this.highWatermark = highWatermark;
+        this.lowWatermark = lowWatermark;
+        this.workerQueues = workerQueues;
+        this.writers = writers;
+        this.consumer = consumer;
+        this.noDisk = noDisk;
+
+        // 初始化滑动窗口计算器（每秒调度一次）
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "kfk-metrics-sampler");
+            t.setDaemon(true);
+            return t;
+        });
+        this.scheduler.scheduleAtFixedRate(this::sampleSnapshot, 1, 1, TimeUnit.SECONDS);
+    }
 
     public ConsumerMetricsCollector(
             int workerCount,
@@ -97,21 +126,7 @@ public class ConsumerMetricsCollector {
             List<? extends BlockingQueue<?>> workerQueues,
             List<RollingJsonWriter> writers,
             KafkaConsumer<?, ?> consumer) {
-        this.workerCount = workerCount;
-        this.queueCapacity = queueCapacity;
-        this.highWatermark = highWatermark;
-        this.lowWatermark = lowWatermark;
-        this.workerQueues = workerQueues;
-        this.writers = writers;
-        this.consumer = consumer;
-
-        // 初始化滑动窗口计算器（每秒调度一次）
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "kfk-metrics-sampler");
-            t.setDaemon(true);
-            return t;
-        });
-        this.scheduler.scheduleAtFixedRate(this::sampleSnapshot, 1, 1, TimeUnit.SECONDS);
+        this(workerCount, queueCapacity, highWatermark, lowWatermark, workerQueues, writers, consumer, false);
     }
 
     // ================= 打点方法（高吞吐批次更新） =================
@@ -131,6 +146,12 @@ public class ConsumerMetricsCollector {
 
     public void recordWritten(int count) {
         totalRecordsWritten.add(count);
+    }
+
+    public void updatePartitions(Set<TopicPartition> partitions) {
+        if (partitions != null && !partitions.equals(this.assignedPartitions)) {
+            this.assignedPartitions = Set.copyOf(partitions);
+        }
     }
 
     public void setBackpressure(boolean paused) {
@@ -213,6 +234,7 @@ public class ConsumerMetricsCollector {
 
         // 1. 系统与概要
         root.put("uptimeSeconds", (System.currentTimeMillis() - startTimeMs) / 1000);
+        root.put("noDisk", noDisk);
         root.put("workerCount", workerCount);
         root.put("queueCapacity", queueCapacity);
         root.put("highWatermark", highWatermark);
@@ -267,14 +289,11 @@ public class ConsumerMetricsCollector {
 
         // 6. Kafka 分区分配
         ArrayNode partitionsArray = root.putArray("partitions");
-        try {
-            Set<TopicPartition> assignment = consumer.assignment();
-            for (TopicPartition tp : assignment) {
-                ObjectNode pNode = partitionsArray.addObject();
-                pNode.put("topic", tp.topic());
-                pNode.put("partition", tp.partition());
-            }
-        } catch (Exception ignored) {}
+        for (TopicPartition tp : assignedPartitions) {
+            ObjectNode pNode = partitionsArray.addObject();
+            pNode.put("topic", tp.topic());
+            pNode.put("partition", tp.partition());
+        }
 
         // 7. JVM 内存与线程
         ObjectNode jvm = root.putObject("jvm");

@@ -48,6 +48,7 @@ public class HighThroughputConsumerEngine {
     // ========== 监控与仪表盘 ==========
     private final ConsumerMetricsCollector metricsCollector;
     private final DashboardServer dashboardServer;
+    private final boolean noDisk;
 
     // ========== 背压参数 ==========
     private final int queueCapacity;
@@ -84,18 +85,18 @@ public class HighThroughputConsumerEngine {
     }
 
     /**
-     * 构建消费者引擎（使用默认 8080 端口启动实时监控 Dashboard）。
+     * 构建消费者引擎（使用默认 8080 端口启动实时监控 Dashboard，默认落盘）。
      *
      * @param workerCount  Worker 线程数（建议等于 CPU 核数）
      * @param outputDir    JSONL 输出目录
      * @param queueCapacity 每个 Worker 队列的容量上限
      */
     public HighThroughputConsumerEngine(int workerCount, String outputDir, int queueCapacity) {
-        this(workerCount, outputDir, queueCapacity, 8080);
+        this(workerCount, outputDir, queueCapacity, 8080, false);
     }
 
     /**
-     * 构建消费者引擎。
+     * 构建消费者引擎（默认落盘）。
      *
      * @param workerCount   Worker 线程数（建议等于 CPU 核数）
      * @param outputDir     JSONL 输出目录
@@ -103,10 +104,24 @@ public class HighThroughputConsumerEngine {
      * @param dashboardPort 实时监控 Web 端口（<=0 则不启动 Web）
      */
     public HighThroughputConsumerEngine(int workerCount, String outputDir, int queueCapacity, int dashboardPort) {
+        this(workerCount, outputDir, queueCapacity, dashboardPort, false);
+    }
+
+    /**
+     * 构建消费者引擎（支持配置 noDisk 纯内存模式）。
+     *
+     * @param workerCount   Worker 线程数（建议等于 CPU 核数）
+     * @param outputDir     JSONL 输出目录
+     * @param queueCapacity  每个 Worker 队列的容量上限
+     * @param dashboardPort 实时监控 Web 端口（<=0 则不启动 Web）
+     * @param noDisk        是否开启纯内存不落盘压测模式
+     */
+    public HighThroughputConsumerEngine(int workerCount, String outputDir, int queueCapacity, int dashboardPort, boolean noDisk) {
         this.workerCount = workerCount;
         this.queueCapacity = queueCapacity;
         this.highWatermark = (int) (queueCapacity * 0.8);
         this.lowWatermark = (int) (queueCapacity * 0.2);
+        this.noDisk = noDisk;
 
         // Kafka Consumer
         Properties props = KafkaConfig.consumerBaseProps();
@@ -126,7 +141,7 @@ public class HighThroughputConsumerEngine {
             BlockingQueue<TaskWrapper> queue = new ArrayBlockingQueue<>(queueCapacity);
             workerQueues.add(queue);
 
-            RollingJsonWriter writer = new RollingJsonWriter(outputDir, i);
+            RollingJsonWriter writer = new RollingJsonWriter(outputDir, i, noDisk);
             writers.add(writer);
 
             final int workerId = i;
@@ -142,7 +157,7 @@ public class HighThroughputConsumerEngine {
         // 初始化实时监控指标收集器与仪表盘
         this.metricsCollector = new ConsumerMetricsCollector(
                 workerCount, queueCapacity, highWatermark, lowWatermark,
-                workerQueues, writers, consumer);
+                workerQueues, writers, consumer, noDisk);
 
         if (dashboardPort > 0) {
             this.dashboardServer = new DashboardServer(dashboardPort, metricsCollector);
@@ -155,8 +170,8 @@ public class HighThroughputConsumerEngine {
      * 启动引擎：先启动所有 Worker 线程，再启动 Fetcher 线程与监控看板。
      */
     public void start() {
-        log.info("Starting HighThroughputConsumerEngine: {} Workers, queue_capacity={}",
-                workerCount, queueCapacity);
+        log.info("Starting HighThroughputConsumerEngine: {} Workers, queue_capacity={}, noDisk={}",
+                workerCount, queueCapacity, noDisk);
 
         // 注册优雅停机钩子
         registerShutdownHook();
@@ -208,6 +223,7 @@ public class HighThroughputConsumerEngine {
                 long pollStart = System.currentTimeMillis();
                 ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(100));
                 long pollDuration = System.currentTimeMillis() - pollStart;
+                metricsCollector.updatePartitions(consumer.assignment());
                 if (records.isEmpty()) continue;
 
                 int batchSize = records.count();
@@ -321,12 +337,17 @@ public class HighThroughputConsumerEngine {
                 // 3. 微批排序：按业务时间戳升序 (TimSort: O(K log K))
                 decodedList.sort(Comparator.comparingLong(d -> d.message().getTimestamp()));
 
-                // 4. 序列化为 JSON 并追加写入 JSONL 文件
+                // 4. 序列化为 JSON 并追加写入 JSONL 文件（若 noDisk 则跳过序列化与物理写盘）
                 int writtenCount = 0;
                 for (DecodedRecordWrapper dw : decodedList) {
                     try {
-                        String jsonLine = toJsonLine(dw.message());
-                        writer.writeLine(jsonLine);
+                        if (!noDisk) {
+                            String jsonLine = toJsonLine(dw.message());
+                            writer.writeLine(jsonLine);
+                        } else {
+                            // 纯内存压测模式：跳过 toJsonLine 序列化与系统磁盘 I/O，最大化吞吐
+                            writer.writeLine(null);
+                        }
                         totalWritten.incrementAndGet();
                         writtenCount++;
                     } catch (Exception e) {

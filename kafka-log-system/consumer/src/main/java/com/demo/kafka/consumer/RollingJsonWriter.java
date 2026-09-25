@@ -28,6 +28,7 @@ public class RollingJsonWriter {
     private final int workerId;
     private final long maxFileSize;
     private final long maxFileAgeMs;
+    private final boolean noDisk;
 
     private BufferedWriter writer;
     private long currentFileSize = 0;
@@ -51,27 +52,49 @@ public class RollingJsonWriter {
      * @param workerId    Worker 编号（用于文件名区分）
      * @param maxFileSizeMB 单文件最大 MB（达到后滚动）
      * @param maxFileAgeMinutes 单文件最大存活分钟数（达到后滚动）
+     * @param noDisk      是否开启纯内存不落盘模式
      */
-    public RollingJsonWriter(String dirPath, int workerId, int maxFileSizeMB, int maxFileAgeMinutes) {
+    public RollingJsonWriter(String dirPath, int workerId, int maxFileSizeMB, int maxFileAgeMinutes, boolean noDisk) {
         this.dirPath = dirPath;
         this.workerId = workerId;
         this.maxFileSize = (long) maxFileSizeMB * 1024 * 1024;
         this.maxFileAgeMs = (long) maxFileAgeMinutes * 60 * 1000;
-        new File(dirPath).mkdirs();
-        rollFile();
+        this.noDisk = noDisk;
+        if (!noDisk) {
+            new File(dirPath).mkdirs();
+            rollFile();
+        } else {
+            this.currentFileName = "(in-memory / no-disk)";
+            log.info("Worker {} initialized in NO-DISK mode (disk write disabled).", workerId);
+        }
     }
 
     /**
-     * 使用默认参数创建（50MB / 2 分钟滚动）。
+     * 支持指定 noDisk 开关的构造器。
+     */
+    public RollingJsonWriter(String dirPath, int workerId, boolean noDisk) {
+        this(dirPath, workerId, 50, 2, noDisk);
+    }
+
+    /**
+     * 使用默认参数创建（50MB / 2 分钟滚动，默认落盘）。
      */
     public RollingJsonWriter(String dirPath, int workerId) {
-        this(dirPath, workerId, 50, 2);
+        this(dirPath, workerId, 50, 2, false);
     }
 
     /**
      * 写入一行 JSON。线程安全（由 Worker 单线程独占调用，无需 synchronized）。
      */
     public void writeLine(String jsonLine) throws IOException {
+        if (noDisk) {
+            totalLinesWritten++;
+            if (jsonLine != null) {
+                totalBytesWritten += (jsonLine.length() + 1);
+            }
+            return;
+        }
+
         long now = System.currentTimeMillis();
         if (currentFileSize >= maxFileSize || (now - fileOpenTime) >= maxFileAgeMs) {
             rollFile();
@@ -130,6 +153,10 @@ public class RollingJsonWriter {
      * 强制刷盘并关闭文件句柄。用于优雅停机阶段。
      */
     public void flushAndClose() {
+        if (noDisk) {
+            log.info("No-disk mode: worker {} processed total_lines={}", workerId, totalLinesWritten);
+            return;
+        }
         try {
             if (writer != null) {
                 writer.flush();
@@ -140,6 +167,10 @@ public class RollingJsonWriter {
         } catch (IOException e) {
             log.error("Error flushing writer for worker {}", workerId, e);
         }
+    }
+
+    public boolean isNoDisk() {
+        return noDisk;
     }
 
     public long getTotalLinesWritten() {

@@ -20,6 +20,7 @@ public class ConsumerApp {
         String outputDir = "data/jsonl";
         int queueSize = 5000;
         int port = 8080;
+        boolean noDisk = false;
 
         // 解析命令行参数
         for (int i = 0; i < args.length; i++) {
@@ -36,6 +37,9 @@ public class ConsumerApp {
                 case "--port", "-p" -> {
                     if (i + 1 < args.length) port = Integer.parseInt(args[++i]);
                 }
+                case "--no-disk", "--dry-run", "-n" -> {
+                    noDisk = true;
+                }
                 case "--help", "-h" -> {
                     printUsage();
                     return;
@@ -44,12 +48,12 @@ public class ConsumerApp {
         }
 
         log.info("=== Kafka High-Throughput Consumer Starting ===");
-        log.info("Workers: {}, Output: {}, Queue size: {}, Dashboard Port: {}",
-                workers, outputDir, queueSize, port);
+        log.info("Workers: {}, Output: {}, Queue size: {}, Dashboard Port: {}, NoDisk: {}",
+                workers, noDisk ? "(disabled / in-memory)" : outputDir, queueSize, port, noDisk);
         log.info("CPU cores detected: {}", Runtime.getRuntime().availableProcessors());
 
         HighThroughputConsumerEngine engine = new HighThroughputConsumerEngine(
-                workers, outputDir, queueSize, port);
+                workers, outputDir, queueSize, port, noDisk);
         engine.start();
 
         try {
@@ -72,10 +76,12 @@ public class ConsumerApp {
                   --output, -o <DIR>     JSONL output directory (default: data/jsonl)
                   --queue-size, -q <N>   Per-worker queue capacity (default: 5000)
                   --port, -p <PORT>      Embedded Dashboard HTTP port (default: 8080, 0 to disable)
+                  --no-disk, -n, --dry-run Disable disk writing (pure in-memory benchmarking)
                   --help, -h             Show this help
                 
                 Examples:
                   java -jar consumer.jar                          # Auto-detect workers, dashboard on :8080
+                  java -jar consumer.jar --no-disk                # Benchmark mode without disk write
                   java -jar consumer.jar -w 4 -o /tmp/output      # 4 workers, custom dir
                   java -jar consumer.jar -p 9090                  # Custom dashboard port
                 """);

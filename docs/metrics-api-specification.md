@@ -63,6 +63,7 @@
 | 字段名 | 类型 | 说明 | 示例 |
 | :--- | :--- | :--- | :--- |
 | `uptimeSeconds` | Long | 消费者进程已持续运行的秒数 | `3600` |
+| `noDisk` | Boolean | 是否开启纯内存不落盘压测模式 | `false` |
 | `workerCount` | Integer | 条带化 Worker 线程总数 | `4` |
 | `queueCapacity` | Integer | 每个 Worker 独占任务队列的容量上限 | `5000` |
 | `highWatermark` | Integer | 触发背压的高水位阈值（默认 80% 容量） | `4000` |
