@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kafka Consumer 实时流量监控面板</title>
+    <style>
+        :root {
+            --bg-base: #0b0f19;
+            --bg-card: rgba(22, 30, 49, 0.85);
+            --bg-card-hover: rgba(30, 41, 67, 0.95);
+            --border-card: rgba(56, 75, 112, 0.4);
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --cyan-glow: #06b6d4;
+            --cyan-accent: #22d3ee;
+            --emerald-glow: #10b981;
+            --emerald-accent: #34d399;
+            --amber-accent: #f59e0b;
+            --rose-glow: #f43f5e;
+            --rose-accent: #fb7185;
+            --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(6, 182, 212, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.06) 0%, transparent 40%);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 1440px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 顶部导航与状态栏 */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 16px 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-icon {
+            font-size: 28px;
+            background: linear-gradient(135deg, #06b6d4, #10b981);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-text h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-text p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 600;
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--emerald-accent);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .status-pill.paused {
+            background: rgba(244, 63, 94, 0.2);
+            color: var(--rose-accent);
+            border-color: rgba(244, 63, 94, 0.4);
+            animation: pulse-rose 1.5s infinite;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+        }
+
+        @keyframes pulse-rose {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.15); }
+        }
+
+        .meta-tag {
+            font-size: 12px;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px 10px;
+            border-radius: 6px;
+        }
+
+        /* 核心指标卡片矩阵 */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(56, 75, 112, 0.8);
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--border-card), transparent);
+        }
+
+        .kpi-card.cyan::before { background: linear-gradient(90deg, transparent, var(--cyan-accent), transparent); }
+        .kpi-card.emerald::before { background: linear-gradient(90deg, transparent, var(--emerald-accent), transparent); }
+        .kpi-card.amber::before { background: linear-gradient(90deg, transparent, var(--amber-accent), transparent); }
+        .kpi-card.rose::before { background: linear-gradient(90deg, transparent, var(--rose-accent), transparent); }
+
+        .kpi-title {
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value-row {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .kpi-value {
+            font-size: 26px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            letter-spacing: -1px;
+        }
+
+        .kpi-unit {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .kpi-sub {
+            margin-top: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .highlight-cyan { color: var(--cyan-accent); }
+        .highlight-emerald { color: var(--emerald-accent); }
+        .highlight-amber { color: var(--amber-accent); }
+        .highlight-rose { color: var(--rose-accent); }
+
+        /* 图表面板与中间区域 */
+        .chart-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chart-legend {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 4px;
+            border-radius: 2px;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 240px;
+            position: relative;
+        }
+
+        canvas#trafficCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Worker 队列条带化矩阵 */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .worker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 12px;
+        }
+
+        .worker-card {
+            background: rgba(22, 30, 49, 0.6);
+            border: 1px solid rgba(56, 75, 112, 0.3);
+            border-radius: 8px;
+            padding: 12px 14px;
+            transition: all 0.2s;
+        }
+
+        .worker-card:hover {
+            background: rgba(26, 36, 60, 0.85);
+            border-color: rgba(6, 182, 212, 0.4);
+        }
+
+        .worker-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .worker-name {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--cyan-accent);
+        }
+
+        .worker-depth-tag {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 8px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease, background-color 0.3s ease;
+            background: var(--emerald-accent);
+        }
+
+        .progress-bar-fill.warn {
+            background: var(--amber-accent);
+        }
+
+        .progress-bar-fill.danger {
+            background: var(--rose-accent);
+        }
+
+        .worker-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .worker-file {
+            font-size: 11px;
+            font-family: var(--font-mono);
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* 底部系统信息与 Kafka 分区 */
+        .bottom-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 900px) {
+            .bottom-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 16px 20px;
+        }
+
+        .partition-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .partition-pill {
+            background: rgba(6, 182, 212, 0.1);
+            color: var(--cyan-accent);
+            border: 1px solid rgba(6, 182, 212, 0.25);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: var(--font-mono);
+        }
+
+        .sys-meter-row {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sys-meter-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        footer {
+            text-align: center;
+            font-size: 12px;
+            color: #475569;
+            padding: 12px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部导航 -->
+        <header>
+            <div class="brand">
+                <div class="brand-icon">⚡</div>
+                <div class="brand-text">
+                    <h1>Kafka 极速消费者实时监控面板</h1>
+                    <p>面向 900MB/s 极端吞吐架构 · 本地 JSONL 落盘引擎</p>
+                </div>
+            </div>
+            <div class="header-meta">
+                <div id="connStatus" class="meta-tag">🔴 连接中...</div>
+                <div id="uptimeTag" class="meta-tag">运行时长: 0s</div>
+                <div id="statusBadge" class="status-pill">
+                    <span class="status-dot"></span>
+                    <span id="statusText">RUNNING</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 核心 KPI 矩阵 -->
+        <div class="kpi-grid">
+            <!-- 1. 网络拉取 -->
+            <div class="kpi-card cyan">
+                <div class="kpi-title">
+                    <span>网络输入吞吐 (Ingress)</span>
+                    <span>🌐</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span id="inMBps" class="kpi-value highlight-cyan">0.0</span>
+                    <span class="kpi-unit">MB/s</span>
+                </div>
+                <div class="kpi-sub">
+                    <span>TPS: <b id="inTps" class="highlight-cyan">0</b> msg/s</span>
+                    <span>累计: <span id="totRecIn">0</span></span>
+                </div>
+            </div>
+
+            <!-- 2. 本地写盘 -->
+            <div class="kpi-card emerald">
+                <div class="kpi-title">
+                    <span>磁盘写入带宽 (Egress)</span>
+                    <span>💾</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span id="outMBps" class="kpi-value highlight-emerald">0.0</span>
+                    <span class="kpi-unit">MB/s</span>
+                </div>
+                <div class="kpi-sub">
+                    <span>速率: <b id="outTps" class="highlight-emerald">0</b> lines/s</span>
+                    <span>写入: <span id="totLinesOut">0</span> 行</span>
+                </div>
+            </div>
+
+            <!-- 3. 数据膨胀比 -->
+            <div class="kpi-card amber">
+                <div class="kpi-title">
+                    <span>数据膨胀系数 (Protobuf→JSON)</span>
+                    <span>📊</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span id="expRatio" class="kpi-value highlight-amber">1.00</span>
+                    <span class="kpi-unit">x</span>
+                </div>
+                <div class="kpi-sub">
+                    <span>落盘累计: <span id="totBytesOut">0 MB</span></span>
+                    <span>拉取累计: <span id="totBytesIn">0 MB</span></span>
+                </div>
+            </div>
+
+            <!-- 4. 背压控制与异常 -->
+            <div class="kpi-card rose">
+                <div class="kpi-title">
+                    <span>背压感知与毒丸隔离</span>
+                    <span>🛡️</span>
+                </div>
+                <div class="kpi-value-row">
+                    <span id="bpState" class="kpi-value highlight-emerald">NORMAL</span>
+                </div>
+                <div class="kpi-sub">
+                    <span>背压触发: <b id="bpCount">0</b> 次</span>
+                    <span>毒丸消息: <b id="poisonCount" class="highlight-rose">0</b> 条</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 实时流量动态趋势图 (原生 Canvas 绘制，无需外部图表库) -->
+        <div class="chart-section">
+            <div class="chart-header">
+                <div class="chart-title">
+                    <span>📈 实时双轴吞吐走势 (最近 60 秒)</span>
+                </div>
+                <div class="chart-legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--cyan-accent)"></div>
+                        <span>网络输入 (MB/s)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--emerald-accent)"></div>
+                        <span>磁盘写入 (MB/s)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--rose-accent)"></div>
+                        <span>背压暂停区间</span>
+                    </div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="trafficCanvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Worker 条带化队列流水线 -->
+        <div>
+            <div class="section-header">
+                <div class="section-title">
+                    <span>⚙️ 条带化 Worker 处理流水线</span>
+                </div>
+                <div class="section-subtitle" id="workerOverviewSub">
+                    Worker 总数: 0 | 队列容量: 0 | 高水位阈值: 80% (背压触发)
+                </div>
+            </div>
+            <div id="workerGrid" class="worker-grid">
+                <!-- 动态填充 Worker 卡片 -->
+            </div>
+        </div>
+
+        <!-- 底部元信息与系统状态 -->
+        <div class="bottom-grid">
+            <!-- Kafka 分区分配 -->
+            <div class="panel-card">
+                <div class="section-title">
+                    <span>🎯 Kafka 分区分配 (Assigned Partitions)</span>
+                </div>
+                <div id="partitionPills" class="partition-pills">
+                    <!-- 动态填充 Partition -->
+                </div>
+            </div>
+
+            <!-- JVM 堆内存与环境 -->
+            <div class="panel-card">
+                <div class="section-title">
+                    <span>☕ JVM 资源占用</span>
+                </div>
+                <div class="sys-meter-row">
+                    <div class="sys-meter-label">
+                        <span>Heap 内存</span>
+                        <span id="heapText">0 MB / 0 MB</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="heapFill" class="progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="sys-meter-label" style="margin-top: 8px;">
+                        <span>活跃线程数: <b id="threadsCount" style="color: var(--text-main);">0</b></span>
+                        <span>最大堆空间: <span id="heapMax">0 MB</span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            High-Throughput Kafka 4.x Engine Dashboard · Built-in Lightweight Zero-Dependency Server
+        </footer>
+    </div>
+
+    <!-- 前端逻辑：Canvas 绘制 + SSE / 轮询数据绑定 -->
+    <script>
+        const canvas = document.getElementById('trafficCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let historyData = [];
+        let highWatermarkRatio = 0.8;
+        let queueCapacity = 5000;
+
+        function resizeCanvas() {
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            drawChart();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function drawChart() {
+            const width = canvas.getBoundingClientRect().width;
+            const height = canvas.getBoundingClientRect().height;
+
+            ctx.clearRect(0, 0, width, height);
+
+            if (!historyData || historyData.length < 2) {
+                ctx.fillStyle = '#64748b';
+                ctx.font = '13px monospace';
+                ctx.fillText('等待时序流量数据采样...', width / 2 - 80, height / 2);
+                return;
+            }
+
+            const paddingLeft = 50;
+            const paddingRight = 20;
+            const paddingTop = 20;
+            const paddingBottom = 30;
+            const plotW = width - paddingLeft - paddingRight;
+            const plotH = height - paddingTop - paddingBottom;
+
+            // 寻找最大 MB/s
+            let maxMBps = 10;
+            for (const pt of historyData) {
+                if (pt.inMBps > maxMBps) maxMBps = pt.inMBps;
+                if (pt.outMBps > maxMBps) maxMBps = pt.outMBps;
+            }
+            maxMBps = Math.ceil(maxMBps * 1.25); // 留出 25% 顶部余量
+
+            // 绘制网格横线与刻度
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+            ctx.fillStyle = '#64748b';
+            ctx.font = '11px monospace';
+            ctx.lineWidth = 1;
+
+            const gridLines = 4;
+            for (let i = 0; i <= gridLines; i++) {
+                const yVal = (maxMBps / gridLines) * (gridLines - i);
+                const y = paddingTop + (plotH / gridLines) * i;
+
+                ctx.beginPath();
+                ctx.moveTo(paddingLeft, y);
+                ctx.lineTo(width - paddingRight, y);
+                ctx.stroke();
+
+                ctx.fillText(Math.round(yVal) + ' MB/s', 5, y + 4);
+            }
+
+            const n = historyData.length;
+            const stepX = plotW / Math.max(1, n - 1);
+
+            // 绘制背压暂停背景阴影条
+            for (let i = 0; i < n; i++) {
+                if (historyData[i].paused) {
+                    const x = paddingLeft + i * stepX;
+                    ctx.fillStyle = 'rgba(244, 63, 94, 0.15)';
+                    ctx.fillRect(x - stepX / 2, paddingTop, stepX, plotH);
+                }
+            }
+
+            // 绘制网络输入曲线 (Cyan)
+            drawLineSeries(historyData.map(d => d.inMBps), '#22d3ee', 'rgba(6, 182, 212, 0.15)', maxMBps, paddingLeft, paddingTop, plotW, plotH, stepX);
+
+            // 绘制磁盘写入曲线 (Emerald)
+            drawLineSeries(historyData.map(d => d.outMBps), '#34d399', 'rgba(16, 185, 129, 0.15)', maxMBps, paddingLeft, paddingTop, plotW, plotH, stepX);
+        }
+
+        function drawLineSeries(values, strokeColor, fillColor, maxVal, padL, padT, plotW, plotH, stepX) {
+            if (values.length < 2) return;
+
+            ctx.beginPath();
+            for (let i = 0; i < values.length; i++) {
+                const x = padL + i * stepX;
+                const ratio = Math.min(1, Math.max(0, values[i] / maxVal));
+                const y = padT + plotH - (ratio * plotH);
+
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+
+            // 渐变填充区域
+            const lastX = padL + (values.length - 1) * stepX;
+            ctx.lineTo(lastX, padT + plotH);
+            ctx.lineTo(padL, padT + plotH);
+            ctx.closePath();
+            ctx.fillStyle = fillColor;
+            ctx.fill();
+
+            // 画主线
+            ctx.beginPath();
+            for (let i = 0; i < values.length; i++) {
+                const x = padL + i * stepX;
+                const ratio = Math.min(1, Math.max(0, values[i] / maxVal));
+                const y = padT + plotH - (ratio * plotH);
+
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 最后一个点画高亮圆圈
+            const lastVal = values[values.length - 1];
+            const endX = lastX;
+            const endY = padT + plotH - ((lastVal / maxVal) * plotH);
+            ctx.beginPath();
+            ctx.arc(endX, endY, 4, 0, Math.PI * 2);
+            ctx.fillStyle = strokeColor;
+            ctx.fill();
+        }
+
+        // ================= 数据绑定与 UI 渲染 =================
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+
+        function formatNumber(num) {
+            return new Intl.NumberFormat().format(num);
+        }
+
+        function updateUI(data) {
+            // 1. 顶部状态
+            const isPaused = data.backpressure?.isPaused;
+            const statusBadge = document.getElementById('statusBadge');
+            const statusText = document.getElementById('statusText');
+            const bpState = document.getElementById('bpState');
+
+            if (isPaused) {
+                statusBadge.className = 'status-pill paused';
+                statusText.innerText = 'PAUSED (背压)';
+                bpState.innerText = 'PAUSED';
+                bpState.className = 'kpi-value highlight-rose';
+            } else {
+                statusBadge.className = 'status-pill';
+                statusText.innerText = 'RUNNING';
+                bpState.innerText = 'NORMAL';
+                bpState.className = 'kpi-value highlight-emerald';
+            }
+
+            document.getElementById('uptimeTag').innerText = `运行时长: ${data.uptimeSeconds}s`;
+
+            // 2. 核心 KPI 矩阵
+            document.getElementById('inMBps').innerText = data.rates.ingressMBps.toFixed(1);
+            document.getElementById('inTps').innerText = formatNumber(data.rates.ingressTps);
+            document.getElementById('totRecIn').innerText = formatNumber(data.totals.consumedRecords);
+
+            document.getElementById('outMBps').innerText = data.rates.writeMBps.toFixed(1);
+            document.getElementById('outTps').innerText = formatNumber(data.rates.writeTps);
+            document.getElementById('totLinesOut').innerText = formatNumber(data.totals.writtenRecords);
+
+            document.getElementById('expRatio').innerText = data.rates.expansionRatio > 0 ? data.rates.expansionRatio.toFixed(2) : '-';
+            document.getElementById('totBytesIn').innerText = formatBytes(data.totals.consumedBytes);
+            document.getElementById('totBytesOut').innerText = formatBytes(data.totals.writtenBytes);
+
+            document.getElementById('bpCount').innerText = data.backpressure.triggerCount;
+            document.getElementById('poisonCount').innerText = data.totals.decodeErrors;
+
+            // 3. 时序图表
+            if (data.history && data.history.length > 0) {
+                historyData = data.history;
+                drawChart();
+            }
+
+            // 4. Worker 队列概览
+            queueCapacity = data.queueCapacity || 5000;
+            document.getElementById('workerOverviewSub').innerText = 
+                `Worker 总数: ${data.workerCount} | 队列单列上限: ${queueCapacity} | 高水位: ${data.highWatermark} (${Math.round(data.highWatermark*100/queueCapacity)}%)`;
+
+            const workerGrid = document.getElementById('workerGrid');
+            if (workerGrid.children.length !== data.workers.length) {
+                workerGrid.innerHTML = '';
+                for (let i = 0; i < data.workers.length; i++) {
+                    const card = document.createElement('div');
+                    card.className = 'worker-card';
+                    card.id = `worker-card-${i}`;
+                    workerGrid.appendChild(card);
+                }
+            }
+
+            data.workers.forEach(w => {
+                const card = document.getElementById(`worker-card-${w.workerId}`);
+                if (!card) return;
+
+                let fillClass = '';
+                if (w.queueUtilization >= 80) fillClass = 'danger';
+                else if (w.queueUtilization >= 50) fillClass = 'warn';
+
+                card.innerHTML = `
+                    <div class="worker-head">
+                        <span class="worker-name">Worker-${String(w.workerId).padStart(2, '0')}</span>
+                        <span class="worker-depth-tag">${w.queueDepth} / ${queueCapacity} (${w.queueUtilization}%)</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(100, w.queueUtilization)}%;"></div>
+                    </div>
+                    <div class="worker-stats">
+                        <span>累计写入: <b>${formatNumber(w.linesWritten)}</b> 行</span>
+                        <span>大小: ${formatBytes(w.bytesWritten)}</span>
+                    </div>
+                    <div class="worker-file" title="${w.currentFile || '待建文件'}">
+                        📄 ${w.currentFile ? w.currentFile.split('/').pop() : '等待写入...'}
+                    </div>
+                `;
+            });
+
+            // 5. Partition 分配
+            const pContainer = document.getElementById('partitionPills');
+            pContainer.innerHTML = '';
+            if (data.partitions && data.partitions.length > 0) {
+                data.partitions.forEach(p => {
+                    const pill = document.createElement('div');
+                    pill.className = 'partition-pill';
+                    pill.innerText = `P-${p.partition}`;
+                    pContainer.appendChild(pill);
+                });
+            } else {
+                pContainer.innerHTML = '<span style="font-size: 12px; color: #64748b;">暂未分配分区或等待 Group Join</span>';
+            }
+
+            // 6. JVM 资源
+            if (data.jvm) {
+                const heapUsed = data.jvm.heapUsedMB;
+                const heapMax = data.jvm.heapMaxMB > 0 ? data.jvm.heapMaxMB : data.jvm.heapCommittedMB;
+                const pct = Math.round((heapUsed / heapMax) * 100);
+
+                document.getElementById('heapText').innerText = `${heapUsed} MB / ${data.jvm.heapCommittedMB} MB`;
+                document.getElementById('heapFill').style.width = pct + '%';
+                if (pct > 85) document.getElementById('heapFill').className = 'progress-bar-fill danger';
+                else if (pct > 65) document.getElementById('heapFill').className = 'progress-bar-fill warn';
+                else document.getElementById('heapFill').className = 'progress-bar-fill';
+
+                document.getElementById('heapMax').innerText = `${heapMax} MB`;
+                document.getElementById('threadsCount').innerText = data.jvm.threadCount;
+            }
+        }
+
+        // ================= 实时通信 (SSE 优先，轮询降级) =================
+        function startSSE() {
+            const connStatus = document.getElementById('connStatus');
+            const eventSource = new EventSource('/api/stream');
+
+            eventSource.onopen = () => {
+                connStatus.innerText = '🟢 实时推送 (SSE)';
+                connStatus.style.color = 'var(--emerald-accent)';
+            };
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    updateUI(data);
+                } catch (err) {
+                    console.error('Parse metrics error:', err);
+                }
+            };
+
+            eventSource.onerror = (err) => {
+                connStatus.innerText = '🟡 轮询降级模式';
+                connStatus.style.color = 'var(--amber-accent)';
+                eventSource.close();
+                // 降级为 1s 轮询
+                startPolling();
+            };
+        }
+
+        let pollInterval = null;
+        function startPolling() {
+            if (pollInterval) return;
+            const poll = () => {
+                fetch('/api/metrics')
+                    .then(res => res.json())
+                    .then(data => updateUI(data))
+                    .catch(err => {
+                        document.getElementById('connStatus').innerText = '🔴 连接断开';
+                        document.getElementById('connStatus').style.color = 'var(--rose-accent)';
+                    });
+            };
+            poll();
+            pollInterval = setInterval(poll, 1000);
+        }
+
+        // 初始化
+        resizeCanvas();
+        startSSE();
+    </script>
+</body>
+</html>

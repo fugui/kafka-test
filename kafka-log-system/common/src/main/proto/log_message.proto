@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package com.demo.kafka.common;
+
+option java_package = "com.demo.kafka.common.proto";
+option java_outer_classname = "LogMessageProto";
+option java_multiple_files = false;
+
+// 日志消息 —— 模拟真实微服务产生的应用日志
+message LogMessage {
+  // Unix epoch 毫秒级时间戳
+  int64  timestamp    = 1;
+
+  // 唯一日志 ID (UUID)
+  string log_id       = 2;
+
+  // 日志级别
+  Level  level        = 3;
+
+  // 产生日志的服务名称 (e.g., "order-service", "payment-service")
+  string source       = 4;
+
+  // 产生日志的线程名
+  string thread_name  = 5;
+
+  // 日志正文
+  string message      = 6;
+
+  // 主机 IP
+  string host_ip      = 7;
+
+  // 分布式追踪 ID
+  string trace_id     = 8;
+
+  // 扩展键值对
+  map<string, string> extra_fields = 9;
+
+  // 日志级别枚举
+  enum Level {
+    DEBUG = 0;
+    INFO  = 1;
+    WARN  = 2;
+    ERROR = 3;
+    FATAL = 4;
+  }
+}

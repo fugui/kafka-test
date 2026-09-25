@@ -1,0 +1,21 @@
+# Kafka binary distribution
+kafka_2.13-*/
+
+# Runtime data & logs
+data/
+*.log
+
+# Maven build output
+target/
+kafka-log-system/*/target/
+kafka-log-system/target/
+
+# IDE & Editor files
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Temporary files
+*.tmp
+*.swp
