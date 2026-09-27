@@ -118,7 +118,7 @@
 
 ### 2.5 `workers` (Worker 流水线数组)
 
-数组中每个元素对应一个工作线程（Worker）的状态：
+数组中每个元素对应一个工作线程（Worker）的状态与业务占空比（Duty Cycle）画像：
 
 ```json
 {
@@ -128,7 +128,17 @@
   "linesWritten": 125430,
   "bytesWritten": 23412000,
   "currentFile": "/data/jsonl/worker-00-20260925-185000.jsonl",
-  "currentFileSizeKB": 22863
+  "currentFileSizeKB": 22863,
+  "dutyCycle": {
+    "busyPercent": 78.5,
+    "idlePercent": 21.5,
+    "status": "BUSY",
+    "breakdown": {
+      "decodePercent": 25.1,
+      "sortPercent": 3.2,
+      "writePercent": 50.2
+    }
+  }
 }
 ```
 
@@ -141,6 +151,24 @@
 | `bytesWritten` | Long | 该 Worker 累计写入磁盘的文件字节数 |
 | `currentFile` | String | 该 Worker 当前正在追加写入的滚动文件绝对路径 |
 | `currentFileSizeKB`| Long | 当前活跃滚动文件已写入的体积（KB） |
+| `dutyCycle` | Object | **线程业务层占空比与耗时细分画像（Zero-GC 纳秒级采样）** |
+
+#### `dutyCycle` 对象契约与状态阈值
+
+| 字段名 | 类型 | 说明 | 取值范围 / 判定标准 |
+| :--- | :--- | :--- | :--- |
+| `busyPercent` | Double | 最近 1 秒内该 Worker 处于业务忙碌状态的时间百分比 | `0.0` ~ `100.0` |
+| `idlePercent` | Double | 最近 1 秒内该 Worker 处于空闲等待队列的时间百分比 | `0.0` ~ `100.0`（与 `busyPercent` 之和为 `100.0%`） |
+| `status` | String | Worker 业务负荷等级评估 | 见下文状态判定标准 |
+| `breakdown.decodePercent` | Double | Protobuf 反序列化 CPU 解码耗时占比 | `0.0` ~ `100.0` |
+| `breakdown.sortPercent` | Double | 微批按时间戳 TimSort 排序 CPU 耗时占比 | `0.0` ~ `100.0` |
+| `breakdown.writePercent` | Double | JSON 序列化与文件追加写盘 I/O 耗时占比 | `0.0` ~ `100.0` |
+
+* **Worker 负荷状态判定阈值**：
+  * `IDLE` (`busyPercent < 20.0%`)：极低负荷或队列严重饥饿等待中；
+  * `NORMAL` (`20.0% <= busyPercent < 70.0%`)：负荷健康平稳；
+  * `BUSY` (`70.0% <= busyPercent < 90.0%`)：高负荷持续处理中；
+  * `OVERLOAD` (`busyPercent >= 90.0%`)：接近或已达到单线程处理瓶颈，建议增加 Worker 并发或优化瓶颈阶段。
 
 ---
 
@@ -227,7 +255,9 @@
   "daemon": true,
   "priority": 5,
   "lockName": "java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject@37d12375",
-  "lockOwner": ""
+  "lockOwner": "",
+  "busyPercent": 78.5,
+  "dutyStatus": "BUSY"
 }
 ```
 
@@ -240,6 +270,8 @@
 | `priority` | Integer | 线程优先级（通常为 1~10，默认 5） |
 | `lockName` | String | 当前正在等待的锁对象名称/类名及 Hash（未等锁时为空字符串） |
 | `lockOwner`| String | 当前持有该锁的线程名称（如果处于 `BLOCKED` 且锁被其他线程占用时非空） |
+| `busyPercent`| Double | **（仅 pipeline 核心组）** 实时业务忙碌占空比百分比（`0.0` ~ `100.0`） |
+| `dutyStatus` | String | **（仅 pipeline 核心组）** 业务忙闲状态：`IDLE` \| `NORMAL` \| `BUSY` \| `OVERLOAD` |
 
 ---
 

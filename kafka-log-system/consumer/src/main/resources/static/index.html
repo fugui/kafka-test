@@ -368,6 +368,146 @@
             text-overflow: ellipsis;
         }
 
+        /* Worker 业务负荷率（Duty Cycle）与耗时气泡 */
+        .duty-section {
+            margin: 6px 0 8px 0;
+            position: relative;
+        }
+
+        .duty-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .duty-tag {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .duty-tag.idle {
+            background: rgba(100, 116, 139, 0.2);
+            color: #94a3b8;
+            border: 1px solid rgba(100, 116, 139, 0.3);
+        }
+
+        .duty-tag.low {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--emerald-accent);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .duty-tag.medium {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--cyan-accent);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+        }
+
+        .duty-tag.high {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--amber-accent);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .duty-tag.overload {
+            background: rgba(244, 63, 94, 0.2);
+            color: var(--rose-accent);
+            border: 1px solid rgba(244, 63, 94, 0.4);
+            animation: pulse-rose 1.5s infinite;
+        }
+
+        .duty-bar-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .duty-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease, background-color 0.3s ease;
+        }
+
+        .duty-bar-fill.fill-green {
+            background: var(--emerald-accent);
+        }
+
+        .duty-bar-fill.fill-blue {
+            background: var(--cyan-accent);
+        }
+
+        .duty-bar-fill.fill-orange {
+            background: var(--amber-accent);
+        }
+
+        .duty-bar-fill.fill-red {
+            background: var(--rose-accent);
+            box-shadow: 0 0 8px rgba(244, 63, 94, 0.6);
+        }
+
+        /* 鼠标悬浮气泡 (Tooltip) */
+        .duty-tooltip {
+            position: absolute;
+            bottom: calc(100% + 7px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(6, 182, 212, 0.5);
+            backdrop-filter: blur(10px);
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-family: var(--font-mono);
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 100;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+        }
+
+        .duty-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(15, 23, 42, 0.95) transparent transparent transparent;
+        }
+
+        .duty-section:hover .duty-tooltip,
+        .duty-bar-container:hover .duty-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Pipeline 核心线程表格标签 */
+        .pipeline-duty-tag {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+
         /* 底部系统信息与 Kafka 分区 */
         .bottom-grid {
             display: grid;
@@ -1152,13 +1292,50 @@
                 if (w.queueUtilization >= 80) fillClass = 'danger';
                 else if (w.queueUtilization >= 50) fillClass = 'warn';
 
+                // 解析 Duty Cycle 占空比与细分耗时
+                const dc = w.dutyCycle || {
+                    busyPercent: 0,
+                    idlePercent: 100,
+                    status: 'IDLE',
+                    breakdown: { decodePercent: 0, sortPercent: 0, writePercent: 0 }
+                };
+                const bd = dc.breakdown || { decodePercent: 0, sortPercent: 0, writePercent: 0 };
+                const busyPercent = Number(dc.busyPercent || 0);
+
+                let dutyColorClass = 'fill-green';
+                let dutyTagClass = 'low';
+                if (busyPercent >= 95) {
+                    dutyColorClass = 'fill-red';
+                    dutyTagClass = 'overload';
+                } else if (busyPercent >= 80) {
+                    dutyColorClass = 'fill-orange';
+                    dutyTagClass = 'high';
+                } else if (busyPercent >= 50) {
+                    dutyColorClass = 'fill-blue';
+                    dutyTagClass = 'medium';
+                } else if (busyPercent < 20) {
+                    dutyTagClass = 'idle';
+                }
+
+                const tooltipText = `解码: ${bd.decodePercent}% | 排序: ${bd.sortPercent}% | 写盘: ${bd.writePercent}% | 空闲: ${dc.idlePercent}%`;
+
                 card.innerHTML = `
                     <div class="worker-head">
                         <span class="worker-name">Worker-${String(w.workerId).padStart(2, '0')}</span>
-                        <span class="worker-depth-tag">${w.queueDepth} / ${queueCapacity} (${w.queueUtilization}%)</span>
+                        <span class="worker-depth-tag">队列: ${w.queueDepth} / ${queueCapacity} (${w.queueUtilization}%)</span>
                     </div>
-                    <div class="progress-bar-bg">
+                    <div class="progress-bar-bg" title="队列积压率: ${w.queueUtilization}%">
                         <div class="progress-bar-fill ${fillClass}" style="width: ${Math.min(100, w.queueUtilization)}%;"></div>
+                    </div>
+                    <div class="duty-section">
+                        <div class="duty-header">
+                            <span>业务负荷率 (Duty Cycle)</span>
+                            <span class="duty-tag ${dutyTagClass}">${dc.busyPercent}% · ${dc.status}</span>
+                        </div>
+                        <div class="duty-bar-container">
+                            <div class="duty-bar-fill ${dutyColorClass}" style="width: ${Math.min(100, dc.busyPercent)}%;"></div>
+                            <div class="duty-tooltip">${tooltipText}</div>
+                        </div>
                     </div>
                     <div class="worker-stats">
                         <span>累计写入: <b>${formatNumber(w.linesWritten)}</b> 行</span>
@@ -1364,9 +1541,22 @@
                     }
                 }
 
+                let dutyBadge = '';
+                if (t.busyPercent !== undefined && t.busyPercent !== null) {
+                    const bp = Number(t.busyPercent);
+                    let tagClass = 'low';
+                    if (bp >= 95) tagClass = 'overload';
+                    else if (bp >= 80) tagClass = 'high';
+                    else if (bp >= 50) tagClass = 'medium';
+                    else if (bp < 20) tagClass = 'idle';
+
+                    const statusStr = t.dutyStatus ? ` [${t.dutyStatus}]` : '';
+                    dutyBadge = `<span class="pipeline-duty-tag duty-tag ${tagClass}" title="业务实时忙闲占空比: ${bp}%${statusStr}">⚡ ${bp}%${statusStr}</span>`;
+                }
+
                 tr.innerHTML = `
                     <td style="color: #64748b;">#${t.id}</td>
-                    <td style="color: var(--text-main); font-weight: 600;">${t.name}</td>
+                    <td style="color: var(--text-main); font-weight: 600;">${t.name}${dutyBadge}</td>
                     <td><span class="meta-tag" style="padding: 2px 6px; font-size: 10px;">${t.groupName}</span></td>
                     <td><span class="${badgeClass}"><span class="legend-dot dot-${t.state === 'RUNNABLE' ? 'runnable' : (t.state === 'BLOCKED' ? 'blocked' : (t.state === 'WAITING' ? 'waiting' : 'timed'))}" style="margin: 0; width: 6px; height: 6px;"></span>${t.state}</span></td>
                     <td style="color: var(--text-muted);">${t.daemon ? '守护 (Daemon)' : '用户 (User)'}</td>

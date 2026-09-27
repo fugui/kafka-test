@@ -5,6 +5,7 @@ import com.demo.kafka.common.TopicConstants;
 import com.demo.kafka.common.proto.LogMessageProto.LogMessage;
 import com.demo.kafka.consumer.dashboard.DashboardServer;
 import com.demo.kafka.consumer.metrics.ConsumerMetricsCollector;
+import com.demo.kafka.consumer.metrics.ThreadDutyTracker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.kafka.clients.consumer.*;
@@ -49,6 +50,8 @@ public class HighThroughputConsumerEngine {
     private final ConsumerMetricsCollector metricsCollector;
     private final DashboardServer dashboardServer;
     private final boolean noDisk;
+    private final ThreadDutyTracker fetcherTracker;
+    private final List<ThreadDutyTracker> workerTrackers;
 
     // ========== 背压参数 ==========
     private final int queueCapacity;
@@ -132,10 +135,12 @@ public class HighThroughputConsumerEngine {
         this.decoder = new ProtobufDecoder();
         this.objectMapper = new ObjectMapper();
 
-        // 初始化 Worker 队列、线程与写入器
+        // 初始化 Worker 队列、线程与写入器及状态追踪器
         this.workerQueues = new ArrayList<>(workerCount);
         this.workerThreads = new ArrayList<>(workerCount);
         this.writers = new ArrayList<>(workerCount);
+        this.workerTrackers = new ArrayList<>(workerCount);
+        this.fetcherTracker = new ThreadDutyTracker("kfk-fetcher-0");
 
         for (int i = 0; i < workerCount; i++) {
             BlockingQueue<TaskWrapper> queue = new ArrayBlockingQueue<>(queueCapacity);
@@ -144,8 +149,11 @@ public class HighThroughputConsumerEngine {
             RollingJsonWriter writer = new RollingJsonWriter(outputDir, i, noDisk);
             writers.add(writer);
 
+            ThreadDutyTracker tracker = new ThreadDutyTracker(String.format("kfk-worker-%02d", i));
+            workerTrackers.add(tracker);
+
             final int workerId = i;
-            Thread workerThread = new Thread(() -> workerLoop(workerId, queue, writer),
+            Thread workerThread = new Thread(() -> workerLoop(workerId, queue, writer, tracker),
                     "kfk-worker-" + String.format("%02d", i));
             workerThread.setDaemon(true);
             workerThreads.add(workerThread);
@@ -157,7 +165,8 @@ public class HighThroughputConsumerEngine {
         // 初始化实时监控指标收集器与仪表盘
         this.metricsCollector = new ConsumerMetricsCollector(
                 workerCount, queueCapacity, highWatermark, lowWatermark,
-                workerQueues, writers, consumer, noDisk);
+                workerQueues, writers, consumer, noDisk,
+                fetcherTracker, workerTrackers);
 
         if (dashboardPort > 0) {
             this.dashboardServer = new DashboardServer(dashboardPort, metricsCollector);
@@ -220,11 +229,16 @@ public class HighThroughputConsumerEngine {
                 evaluateBackpressure();
 
                 // 2. 拉取消息（即使 paused 也要 poll 以维持心跳）
+                fetcherTracker.transitionTo(ThreadDutyTracker.State.IDLE);
                 long pollStart = System.currentTimeMillis();
                 ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(100));
                 long pollDuration = System.currentTimeMillis() - pollStart;
                 metricsCollector.updatePartitions(consumer.assignment());
                 if (records.isEmpty()) continue;
+
+                // 成功拉取到数据：将 poll 耗时归为有效拉取 BUSY_POLL，并切入分发状态
+                fetcherTracker.reclassifyActiveState(ThreadDutyTracker.State.BUSY_POLL);
+                fetcherTracker.transitionTo(ThreadDutyTracker.State.BUSY_DISPATCH);
 
                 int batchSize = records.count();
                 long batchBytes = 0;
@@ -258,7 +272,9 @@ public class HighThroughputConsumerEngine {
                 }
 
                 // 5. 等待批次屏障完成后提交 offset
+                fetcherTracker.transitionTo(ThreadDutyTracker.State.WAIT_BATCH);
                 boolean completed = batchLatch.await(30, TimeUnit.SECONDS);
+                fetcherTracker.transitionTo(ThreadDutyTracker.State.IDLE);
                 if (completed) {
                     consumer.commitAsync((offsets, ex) -> {
                         if (ex != null) {
@@ -290,6 +306,8 @@ public class HighThroughputConsumerEngine {
             log.info("[Fetcher] interrupted, shutting down.");
         } catch (Exception e) {
             log.error("[Fetcher] fatal error", e);
+        } finally {
+            fetcherTracker.transitionTo(ThreadDutyTracker.State.IDLE);
         }
         log.info("[Fetcher] exited.");
     }
@@ -297,13 +315,14 @@ public class HighThroughputConsumerEngine {
     // ===========================
     // Worker 线程 — 解码/排序/落盘
     // ===========================
-    private void workerLoop(int workerId, BlockingQueue<TaskWrapper> queue, RollingJsonWriter writer) {
+    private void workerLoop(int workerId, BlockingQueue<TaskWrapper> queue, RollingJsonWriter writer, ThreadDutyTracker tracker) {
         log.info("[Worker-{}] started.", workerId);
         List<TaskWrapper> miniBatch = new ArrayList<>(1000);
 
         while (running.get() || !queue.isEmpty()) {
             try {
-                // 1. 微批批量抽取（最长等待 10ms，最多 1000 条）
+                // 1. 微批批量抽取（最长等待 10ms，最多 1000 条） -> IDLE
+                tracker.transitionTo(ThreadDutyTracker.State.IDLE);
                 miniBatch.clear();
                 TaskWrapper first = queue.poll(10, TimeUnit.MILLISECONDS);
                 if (first != null) {
@@ -312,7 +331,8 @@ public class HighThroughputConsumerEngine {
                 }
                 if (miniBatch.isEmpty()) continue;
 
-                // 2. 解码阶段：Protobuf byte[] → LogMessage
+                // 2. 解码阶段：Protobuf byte[] → LogMessage -> BUSY_DECODE
+                tracker.transitionTo(ThreadDutyTracker.State.BUSY_DECODE);
                 List<DecodedRecordWrapper> decodedList = new ArrayList<>(miniBatch.size());
                 int decodedCount = 0;
                 int errorCount = 0;
@@ -334,10 +354,12 @@ public class HighThroughputConsumerEngine {
                 }
                 metricsCollector.recordDecode(decodedCount, errorCount);
 
-                // 3. 微批排序：按业务时间戳升序 (TimSort: O(K log K))
+                // 3. 微批排序：按业务时间戳升序 (TimSort: O(K log K)) -> BUSY_SORT
+                tracker.transitionTo(ThreadDutyTracker.State.BUSY_SORT);
                 decodedList.sort(Comparator.comparingLong(d -> d.message().getTimestamp()));
 
-                // 4. 序列化为 JSON 并追加写入 JSONL 文件（若 noDisk 则跳过序列化与物理写盘）
+                // 4. 序列化为 JSON 并追加写入 JSONL 文件 -> BUSY_WRITE
+                tracker.transitionTo(ThreadDutyTracker.State.BUSY_WRITE);
                 int writtenCount = 0;
                 for (DecodedRecordWrapper dw : decodedList) {
                     try {
@@ -365,6 +387,7 @@ public class HighThroughputConsumerEngine {
             }
         }
 
+        tracker.transitionTo(ThreadDutyTracker.State.IDLE);
         log.info("[Worker-{}] exited. Total lines written by this worker: {}",
                 workerId, writer.getTotalLinesWritten());
     }

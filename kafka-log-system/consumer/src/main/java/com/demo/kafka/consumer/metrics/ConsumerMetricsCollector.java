@@ -90,6 +90,8 @@ public class ConsumerMetricsCollector {
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
     private final boolean noDisk;
+    private final ThreadDutyTracker fetcherTracker;
+    private final List<ThreadDutyTracker> workerTrackers;
 
     public ConsumerMetricsCollector(
             int workerCount,
@@ -99,7 +101,9 @@ public class ConsumerMetricsCollector {
             List<? extends BlockingQueue<?>> workerQueues,
             List<RollingJsonWriter> writers,
             KafkaConsumer<?, ?> consumer,
-            boolean noDisk) {
+            boolean noDisk,
+            ThreadDutyTracker fetcherTracker,
+            List<ThreadDutyTracker> workerTrackers) {
         this.workerCount = workerCount;
         this.queueCapacity = queueCapacity;
         this.highWatermark = highWatermark;
@@ -108,6 +112,8 @@ public class ConsumerMetricsCollector {
         this.writers = writers;
         this.consumer = consumer;
         this.noDisk = noDisk;
+        this.fetcherTracker = fetcherTracker;
+        this.workerTrackers = workerTrackers;
 
         // 初始化滑动窗口计算器（每秒调度一次）
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -125,8 +131,20 @@ public class ConsumerMetricsCollector {
             int lowWatermark,
             List<? extends BlockingQueue<?>> workerQueues,
             List<RollingJsonWriter> writers,
+            KafkaConsumer<?, ?> consumer,
+            boolean noDisk) {
+        this(workerCount, queueCapacity, highWatermark, lowWatermark, workerQueues, writers, consumer, noDisk, null, null);
+    }
+
+    public ConsumerMetricsCollector(
+            int workerCount,
+            int queueCapacity,
+            int highWatermark,
+            int lowWatermark,
+            List<? extends BlockingQueue<?>> workerQueues,
+            List<RollingJsonWriter> writers,
             KafkaConsumer<?, ?> consumer) {
-        this(workerCount, queueCapacity, highWatermark, lowWatermark, workerQueues, writers, consumer, false);
+        this(workerCount, queueCapacity, highWatermark, lowWatermark, workerQueues, writers, consumer, false, null, null);
     }
 
     // ================= 打点方法（高吞吐批次更新） =================
@@ -171,6 +189,17 @@ public class ConsumerMetricsCollector {
 
     // ================= 每秒采样与速率计算 =================
     private void sampleSnapshot() {
+        if (fetcherTracker != null) {
+            fetcherTracker.sampleDelta();
+        }
+        if (workerTrackers != null) {
+            for (ThreadDutyTracker tracker : workerTrackers) {
+                if (tracker != null) {
+                    tracker.sampleDelta();
+                }
+            }
+        }
+
         long now = System.currentTimeMillis();
         long elapsedMs = Math.max(1, now - lastSnapshotTime);
         double elapsedSec = elapsedMs / 1000.0;
@@ -284,6 +313,20 @@ public class ConsumerMetricsCollector {
             wNode.put("bytesWritten", writer.getTotalBytesWritten());
             wNode.put("currentFile", writer.getCurrentFileName());
             wNode.put("currentFileSizeKB", writer.getCurrentFileSize() / 1024);
+
+            // 占空比（Duty Cycle）与细分耗时
+            ThreadDutyTracker.DutyCycleSnapshot dcSnap = (workerTrackers != null && i < workerTrackers.size())
+                    ? workerTrackers.get(i).getLastSnapshot()
+                    : ThreadDutyTracker.DutyCycleSnapshot.EMPTY;
+
+            ObjectNode dcNode = wNode.putObject("dutyCycle");
+            dcNode.put("busyPercent", dcSnap.busyPercent());
+            dcNode.put("idlePercent", dcSnap.idlePercent());
+            dcNode.put("status", dcSnap.status());
+            ObjectNode breakdown = dcNode.putObject("breakdown");
+            breakdown.put("decodePercent", dcSnap.decodePercent());
+            breakdown.put("sortPercent", dcSnap.sortPercent());
+            breakdown.put("writePercent", dcSnap.writePercent());
         }
         root.put("maxQueueDepth", maxDepth);
 
@@ -411,9 +454,34 @@ public class ConsumerMetricsCollector {
             tNode.put("priority", ti.getPriority());
             tNode.put("lockName", ti.getLockName() != null ? ti.getLockName() : "");
             tNode.put("lockOwner", ti.getLockOwnerName() != null ? ti.getLockOwnerName() : "");
+
+            if ("pipeline".equals(key)) {
+                attachPipelineDutyCycle(tNode, ti.getThreadName());
+            }
         }
         gNode.put("runnableCount", rCount);
         gNode.put("blockedCount", bCount);
+    }
+
+    private void attachPipelineDutyCycle(ObjectNode tNode, String threadName) {
+        if (threadName == null) return;
+        if (threadName.startsWith("kfk-fetcher")) {
+            if (fetcherTracker != null) {
+                ThreadDutyTracker.DutyCycleSnapshot snap = fetcherTracker.getLastSnapshot();
+                tNode.put("busyPercent", snap.busyPercent());
+                tNode.put("dutyStatus", snap.status());
+            }
+        } else if (threadName.startsWith("kfk-worker-")) {
+            try {
+                int workerId = Integer.parseInt(threadName.substring("kfk-worker-".length()));
+                if (workerTrackers != null && workerId >= 0 && workerId < workerTrackers.size()) {
+                    ThreadDutyTracker.DutyCycleSnapshot snap = workerTrackers.get(workerId).getLastSnapshot();
+                    tNode.put("busyPercent", snap.busyPercent());
+                    tNode.put("dutyStatus", snap.status());
+                }
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     public void stop() {
